@@ -1,0 +1,764 @@
+<?php
+
+/**
+ * @file
+ * Logs access statistics for your site.
+ */
+
+/**
+ * Some defines
+ */
+define('MONGODB_STATISTICS_DELETED_USER_DO_NOTHING',0);
+define('MONGODB_STATISTICS_DELETED_USER_TRANSFER_ANONYMOUS',1);
+define('MONGODB_STATISTICS_DELETED_USER_DELETE',2);
+
+/**
+ * Implements hook_help().
+ */
+function statistics_help($path, $arg) {
+  switch ($path) {
+      // TODO: review documentation
+    case 'admin/help#statistics':
+      $output = '';
+      $output .= '<h3>' . t('About') . '</h3>';
+      $output .= '<p>' . t('The MongDB Statistics module shows you how often a given page is viewed, who viewed it, the previous page the user visited (referrer URL), and when it was viewed. These statistics are useful in determining how users are visiting and navigating your site. It is a replacement for the core Statistics module.') . '</p>';
+      $output .= '<h3>' . t('Uses') . '</h3>';
+      $output .= '<dl>';
+      $output .= '<dt>' . t('Managing logs') . '</dt>';
+      $output .= '<dd>' . t('To enable collection of statistics, the <em>Enable access log</em> checkbox on the <a href="@statistics-settings">Statistics settings page</a> must be checked. The <em>Discard access logs older than</em> setting on the settings page specifies the length of time entries are kept in the log before they are deleted. This setting requires a correctly configured <a href="@cron">cron maintenance task</a> to run.',
+       array(
+         '@statistics-settings' => url('admin/config/system/statistics'),
+         '@cron' => 'http://drupal.org/cron'))
+       . '</dd>';
+      $output .= '<dt>' . t('Viewing site usage') . '</dt>';
+      $output .= '<dd>' . t('The Statistics module can help you break down details about your users and how they are using the site. The module offers four reports:');
+      $output .= '<ul><li>' . t('<a href="@recent-hits">Recent hits</a> displays information about the latest activity on your site, including the URL and title of the page that was accessed, the user name (if available) and the IP address of the viewer.',
+       array('@recent-hits' => url('admin/reports/stats-mongodb/hits')))
+       . '</li>';
+      $output .= '<li>' . t('<a href="@top-referrers">Top referrers</a> displays where visitors came from (referrer URL).',
+       array('@top-referrers' => url('admin/reports/stats-mongodb/referrers')))
+       . '</li>';
+      $output .= '<li>' . t('<a href="@top-pages">Top pages</a> displays a list of pages ordered by how often they were viewed.',
+       array('@top-pages' => url('admin/reports/stats-mongodb/pages')))
+       . '</li>';
+      $output .= '<li>' . t('<a href="@top-visitors">Top visitors</a> shows you the most active visitors for your site and allows you to ban abusive visitors.',
+       array('@top-visitors' => url('admin/reports/stats-mongodb/visitors')))
+       . '</li></ul>';
+      $output .= '<dt>' . t('Displaying popular content') . '</dt>';
+      $output .= '<dd>' . t('The module includes a <em>Popular content</em> block that displays the most viewed pages today and for all time, and the last content viewed. To use the block, enable <em>Count content views</em> on the <a href="@statistics-settings">statistics settings page</a>, and then you can enable and configure the block on the <a href="@blocks">blocks administration page</a>.',
+       array(
+         '@statistics-settings' => url('admin/config/system/statistics'),
+         '@blocks' => url('admin/structure/block')))
+       . '</dd>';
+      $output .= '<dt>' . t('Page view counter') . '</dt>';
+      $output .= '<dd>' . t('The Statistics module includes a counter for each page that increases whenever the page is viewed. To use the counter, enable <em>Count content views</em> on the <a href="@statistics-settings">statistics settings page</a>, and set the necessary <a href="@permissions">permissions</a> (<em>View content hits</em>) so that the counter is visible to the users.',
+       array(
+         '@statistics-settings' => url('admin/config/system/statistics'),
+         '@permissions' => url('admin/people/permissions', array('fragment' => 'module-statistics'))))
+        . '</dd>';
+      $output .= '</dl>';
+      return $output;
+    case 'admin/config/system/statistics':
+      return '<p>'
+       . t('Settings for the statistical information that Drupal will keep about the site. See <a href="@statistics">site statistics</a> for the actual information.'
+       , array('@statistics' => url('admin/reports/stats-mongodb/hits')))
+       . '</p>';
+    case 'admin/reports/stats-mongodb/hits':
+      return '<p>'
+       . t("This page displays the site's most recent hits.")
+       . '</p>';
+    case 'admin/reports/stats-mongodb/referrers':
+      return '<p>'
+      . t('This page displays all external referrers, or external references to your website.')
+      . '</p>';
+    case 'admin/reports/stats-mongodb/visitors':
+      return '<p>'
+      . t("When you ban a visitor, you prevent the visitor's IP address from accessing your site. Unlike blocking a user, banning a visitor works even for anonymous users. This is most commonly used to block resource-intensive bots or web crawlers.")
+      . '</p>';
+  }
+}
+
+/**
+ * implements hook_flush_caches
+ *
+ * @return unknown_type
+ */
+function mongodb_statistics_flush_caches() {
+  return array('cache_mongo_statistics');
+}
+
+/**
+ * Implements hook_exit().
+ *
+ * This is where statistics are gathered on page accesses.
+ * hook_exit is called at bootstrap time even for cached pages
+ */
+function mongodb_statistics_exit() {
+  global $user;
+
+  // When serving cached pages with the 'page_cache_without_database'
+  // configuration, system variables need to be loaded.
+  // This could be a major performance decrease for non-database page caches,
+  // like in original statistics module, but variables can be cached in
+  // cache_bootstrap bin, you should store this bin in APC or MongoDB to avoid
+  // database calls.
+  // check as well your lock API, using a module bypassing the classical lock API
+  // could avoid database calls.
+  drupal_bootstrap(DRUPAL_BOOTSTRAP_VARIABLES);
+
+  if (variable_get('mongodb_statistics_count_content_views', 0)) {
+    // We are counting content views.
+    if (arg(0) == 'node' && is_numeric(arg(1)) && arg(2) == NULL) {
+      // A node has been viewed, so update the node's counters.
+      $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+      $collection = mongodb_collection($collectionname);
+      $nid = (int) arg(1);
+      $collection->update(
+        array('_id' => $nid),
+        array(
+          '$inc' => array(
+            'totalcount' => 1,
+            'daycount' => 1,
+            'totalgen' => 1,
+            'daygen' => 1,
+          ),
+          '$set' => array(
+            'timestamp' => REQUEST_TIME,
+            'timestampgen' => REQUEST_TIME,
+            'nid' => $nid,
+          ),
+        ),
+        array('upsert' => TRUE)
+      );
+    }
+  }
+  if (variable_get('mongodb_statistics_enable_access_log', 0)) {
+    // Log this page access.
+    
+    // Here we force a boostrap session phase to track users
+    // this will maybe make some database calls if you do not
+    // bypass the default Drupal session database way
+    drupal_bootstrap(DRUPAL_BOOTSTRAP_SESSION);
+    $collectionname = variable_get('mongodb_accesslog_collection_name', 'accesslog');
+    $collection = mongodb_collection($collectionname);
+    $aid = (int) mongodb_next_id($collectionname);
+    $block = array(
+      '_id' => $aid,
+      'title' => strip_tags(drupal_get_title()),
+      'path' => $_GET['q'],
+      'url' => isset($_SERVER['HTTP_REFERER'])? $_SERVER['HTTP_REFERER'] : '',
+      'hostname' => ip_address(),
+      'uid' => (int) $user->uid,
+      'sid' => session_id(),
+      'timer' => (int) timer_read('page'),
+      'timestamp' => REQUEST_TIME,
+      // normalization (no join queries later), we add the user name right now
+      'name' => isset($user->name)? strip_tags($user->name) : ''
+    );
+    $collection->insert($block);
+  }
+}
+
+/**
+ * Implements hook_permission().
+ *
+ * this is a copy of core statistics permissions
+ */
+function mongodb_statistics_permission() {
+  return array(
+    'administer statistics' => array(
+      'title' => t('Administer statistics'),
+    ),
+    'access statistics' => array(
+      'title' => t('View content access statistics'),
+    ),
+    'view post access counter' => array(
+      'title' => t('View content hits'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_node_view().
+ *
+ * Called when a node is rendered.
+ * Used here to add view counter on the node for authorized users
+ */
+function mongodb_statistics_node_view($node, $view_mode) {
+  if ($view_mode != 'rss') {
+    if (user_access('view post access counter')) {
+      $statistics = mongodb_statistics_get($node->nid);
+      if ($statistics) {
+        $links['mongodb_statistics_counter']['title'] = format_plural($statistics['totalcount'], '1 read', '@count reads');
+        $node->content['links']['statistics'] = array(
+          '#theme' => 'links__node__statistics',
+          '#links' => $links,
+          '#attributes' => array('class' => array('links', 'inline')),
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function mongodb_statistics_menu() {
+  /* Report pages */
+  $items['admin/reports/stats-mongodb'] = array(
+    'title' => 'MongoDb Statistics Reports',
+    'description' => 'Statistics reports managed via MongoDB collectors.',
+    'page callback' => 'mongodb_statistics_all_tops',
+    'access arguments' => array('access statistics'),
+    'file' => 'mongodb_statistics.admin.inc',
+    'weight' => -20,
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/reports/stats-mongodb/hits'] = array(
+    'title' => 'Recent hits',
+    'description' => 'View pages that have recently been visited.',
+    'page callback' => 'mongodb_statistics_recent_hits',
+    'access arguments' => array('access statistics'),
+    'file' => 'mongodb_statistics.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/reports/stats-mongodb/pages'] = array(
+    'title' => 'Top pages',
+    'description' => 'View pages that have been hit frequently.',
+    'page callback' => 'mongodb_statistics_top_pages',
+    'access arguments' => array('access statistics'),
+    'weight' => 1,
+    'file' => 'mongodb_statistics.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/reports/stats-mongodb/visitors'] = array(
+    'title' => 'Top visitors',
+    'description' => 'View visitors that hit many pages.',
+    'page callback' => 'mongodb_statistics_top_visitors',
+    'access arguments' => array('access statistics'),
+    'weight' => 2,
+    'file' => 'mongodb_statistics.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/reports/stats-mongodb/referrers'] = array(
+    'title' => 'Top referrers',
+    'description' => 'View top referrers.',
+    'page callback' => 'mongodb_statistics_top_referrers',
+    'access arguments' => array('access statistics'),
+    'file' => 'mongodb_statistics.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/reports/stats-mongodb/hits/access/%'] = array(
+    'title' => 'Details',
+    'description' => 'View access log.',
+    'page callback' => 'mongodb_statistics_access_log',
+    'page arguments' => array(5),
+    'access arguments' => array('access statistics'),
+    'file' => 'mongodb_statistics.admin.inc',
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  $items['admin/reports/stats-mongodb/popular-nodes'] = array(
+    'title' => 'Popular Content',
+    'description' => 'View popular content (nodes).',
+    'page callback' => 'mongodb_statistics_top_nodes',
+    'access arguments' => array('access statistics'),
+    'file' => 'mongodb_statistics.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  /* Config pages */
+  $items['admin/config/system/mongodb_statistics'] = array(
+    'title' => 'Statistics',
+    'description' => 'Control details about what and how your site logs access statistics.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mongodb_statistics_settings_form'),
+    'access arguments' => array('administer statistics'),
+    'file' => 'mongodb_statistics.admin.inc',
+    'weight' => -15,
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/config/system/mongodb_statistics/migration'] = array(
+    'title' => 'Statistics Migration from core sql to mongodb',
+    'description' => 'Allows you to migrate node counters from previous statistics core module to the new mongodb storage.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mongodb_statistics_sql_migration_form'),
+    'access arguments' => array('administer statistics'),
+    'file' => 'mongodb_statistics.migration.inc',
+    'weight' => -20,
+    'type' => MENU_SUGGESTED_ITEM,
+  );
+  /* Tab trackers */
+  $items['user/%user/track/mongodb_navigation'] = array(
+    'title' => 'Track page visits',
+    'page callback' => 'mongodb_statistics_user_tracker',
+    'access callback' => 'user_access',
+    'access arguments' => array('access statistics'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+    'file' => 'mongodb_statistics.pages.inc',
+  );
+  $items['node/%node/mongodb_track'] = array(
+    'title' => 'Track',
+    'page callback' => 'mongodb_statistics_node_tracker',
+    'access callback' => 'user_access',
+    'access arguments' => array('access statistics'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+    'file' => 'mongodb_statistics.pages.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_user_cancel().
+ *
+ * User account is cancelled from this installation.
+ * We only do something for reassignement, we do nothing for delete
+ */
+function mongodb_statistics_user_cancel($edit, $account, $method) {
+  switch ($method) {
+    case 'user_cancel_reassign':
+      $collectionname = variable_get('mongodb_accesslog_collection_name', 'accesslog');
+      $collection = mongodb_collection($collectionname);
+      $collection->update(
+        array('uid' => (int) $account->uid),
+        array(
+          '$set' => array(
+            'uid' => 0,
+          ),
+        ),
+        array(
+          'multiple' => true,
+        )
+      );
+      break;
+  }
+}
+
+/**
+ * Implements hook_user_delete().
+ *
+ * User account is being deleted
+ */
+function mongodb_statistics_user_delete($account) {
+  switch(variable_get('mongodb_statistics_deleted_user_behavior', MONGODB_STATISTICS_DELETED_USER_DO_NOTHING)) {
+    case MONGODB_STATISTICS_DELETED_USER_DELETE:
+      $collectionname = variable_get('mongodb_accesslog_collection_name', 'accesslog');
+      mongodb_collection($collectionname)->remove(
+        array(
+            'uid' => (int) $account->uid
+        ),
+        array(
+         'justOne' => FALSE
+        )
+      );
+      break;
+    case MONGODB_STATISTICS_DELETED_USER_TRANSFER_ANONYMOUS:
+      mongodb_statistics_user_cancel(array(),$account,'user_cancel_reassign');
+      break;
+  }
+}
+
+/**
+ * Implements hook_cron().
+ */
+function mongodb_statistics_cron() {
+  //GET last value set in this variable (last cron)
+  $request_dow = date('D',REQUEST_TIME);
+  $last_statistics_dow = variable_get('mongodb_statistics_day_dow', $request_dow);
+  $last_statistics_timestamp = variable_get('mongodb_statistics_day_timestamp', '');
+
+  if (variable_get('mongodb_statistics_count_content_views', 0)) {
+    // was it yesterday?
+    // Better than testing 24 hours like in core statistics,
+    // here rotation depends on midnight (dow means day of week)
+    if ( $request_dow !== $last_statistics_dow) {
+      // Reset day counts.
+      $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+      $collection = mongodb_collection($collectionname);
+      $collection->update(
+        array(),
+        array(
+          '$set' => array(
+            'daycount' => 0,
+            'daycountgen' => 0,
+          ),
+        ),
+        array(
+          'multiple' => true,
+        )
+      );
+      variable_set('mongodb_statistics_day_dow', $request_dow);
+    }
+
+    // synchronize sql tables with records updated since last $last_statistics_timestamp
+    if (variable_get('mongodb_statistics_sync_db_tables_count_content_views', 0)) {
+      mongodb_statistics_synchronize_db_counters($last_statistics_timestamp);
+    }
+    variable_set('mongodb_statistics_day_timestamp', REQUEST_TIME);
+  }
+  
+  // Clean up expired access logs (if applicable).
+  $ttl = variable_get('mongodb_statistics_flush_accesslog_timer', 259200);
+  if ( ( $ttl > 0) && variable_get('mongodb_statistics_enable_access_log', 0) ) {
+    $collectionname = variable_get('mongodb_accesslog_collection_name', 'accesslog');
+    mongodb_collection($collectionname)->remove(
+      array(
+        '$lt' => array(
+          'timestamp' => REQUEST_TIME - $ttl,
+        ),
+      ),
+      array(
+       'justOne' => FALSE
+      )
+    );
+  }
+  
+}
+
+/*
+ * This will check all mongodb records in mongodb collection node_counter
+ * and push them in sql table mongodb_node_counter.
+ * This can allow views-style sql queries on asynchronous counters
+ */
+function mongodb_statistics_synchronize_db_counters($last_statistics_timestamp) {
+  $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+  $collection = mongodb_collection($collectionname);
+  $cursor = $collection->find(
+    array('timestamp' => array('$gt' => $last_statistics_timestamp)),
+    array(
+      'nid',
+      'timestamp',
+      'totalcount',
+      'daycount',
+      'timestampgen',
+      'totalcountgen',
+      'daycountgen',
+    )
+  );
+  foreach($cursor as $k => $row) {
+    // TODO: could we build a an bulk merge?
+    db_merge('mongodb_node_counter')
+      ->key(array('nid' => $row['nid']))
+      ->fields(array(
+        'daycount' => $row['daycount'],
+        'totalcount' => $row['totalcount'],
+        'timestamp' => $row['timestamp'],
+        'daycountgen' => $row['daycountgen'],
+        'totalcountgen' => $row['totalcountgen'],
+        'timestampgen' => $row['timestampgen'],
+      ))
+      ->execute();
+  }
+}
+
+/**
+ * Returns all time or today top or last viewed node(s).
+ * query is made first on Mongodb to retrieve the matching node list
+ * and then an SQL query is done to fill missing data
+ * So the list is not 'asynchronous' as it would be with views
+ * but you could cache the result as we do with the 'mongodb_popular' block
+ *
+ * @param $dbfield
+ *   one of
+ *   - 'totalcount': top viewed content of all time.
+ *   - 'daycount': top viewed content for today.
+ *   - 'timestamp': last viewed node.
+ *
+ * @param $dbrows
+ *   number of rows to be returned.
+ *
+ * @return
+ *   A query result containing n.nid, n.title, u.uid, u.name of the selected node(s)
+ *   or FALSE if the query could not be executed correctly.
+ */
+function mongodb_statistics_title_list($dbfield, $dbrows) {
+  if (in_array($dbfield, array('totalcount', 'daycount', 'timestamp'))) {
+    // Mongo first, then db for node informations
+    // (join does not exists in mongodb)
+    $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+    $collection = mongodb_collection($collectionname);
+    $cursor = $collection->find(
+      array($dbfield=> array('$gt' => 0)),
+      array(
+        'nid',
+      )
+    );
+    $cursor->sort(array($dbfield => -1))->limit($dbrows);
+    $nidlist = $arridx = $final = array();
+    $cpt=0;
+    foreach($cursor as $k => $obj) {
+        $nidlist[] = $obj['nid'];
+        $arridx[$obj['nid']] = $cpt;
+        $cpt++;
+    }
+    if (count($nidlist)>0) {
+      $query = db_select('node', 'n');
+      $query->addTag('node_access');
+//      $query->join('node_counter', 's', 'n.nid = s.nid');
+      $query->join('users', 'u', 'n.uid = u.uid');
+
+      $result= $query
+        ->fields('n', array('nid', 'title'))
+        ->fields('u', array('uid', 'name'))
+        ->condition('n.status', 1)
+        ->condition('n.nid', $nidlist, 'IN')
+        ->range(0, $dbrows)
+        ->execute();
+      // our $nidlist is sorted, not the query result
+      // fix it with the $arridx inverted sort index:
+      foreach($result as $k => $res) {
+          $final[$arridx[$res->nid]] = $res;
+      }
+      ksort($final);
+      return $final;
+    }
+  }
+  return FALSE;
+}
+
+
+/**
+ * Retrieves a node's "view statistics".
+ *
+ * @param $nid
+ *   node ID
+ *
+ * @return
+ *   An array with three entries: [0]=totalcount, [1]=daycount, [2]=timestamp
+ *   - totalcount: count of the total number of times that node has been viewed.
+ *   - daycount: count of the total number of times that node has been viewed "today".
+ *     For the daycount to be reset, cron must be enabled.
+ *   - timestamp: timestamp of when that node was last viewed.
+ */
+function mongodb_statistics_get($nid) {
+
+  if ($nid > 0) {
+    // Retrieve an array with both totalcount and daycount.
+    $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+    $collection = mongodb_collection($collectionname);
+    return $collection->findOne(
+      array('_id' => (int) $nid),
+      array(
+         'totalcount',
+         'daycount',
+         'timestamp',
+      )
+    );
+  }
+  return false;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function mongodb_statistics_block_info() {
+  $blocks = array();
+
+  if (variable_get('mongodb_statistics_count_content_views', 0)) {
+    $blocks['mongodb_popular']['info'] = t('Popular content (Mongo)');
+    // Too dynamic to cache.
+    // use DRUPAL_CACHE_CUSTOM instead of DRUPAL_NO_CACHE used in core statistics module
+    // So we can cache the module based on the with a time based cache
+    //$blocks['mongodb_popular']['cache'] = DRUPAL_NO_CACHE;
+    $blocks['mongodb_popular']['cache'] = DRUPAL_CACHE_CUSTOM;
+  }
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_configure().
+ */
+function mongodb_statistics_block_configure($delta = '') {
+  // Popular content block settings
+  $numbers = array('0' => t('Disabled')) + drupal_map_assoc(
+    array(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 40)
+  );
+  $form['mongodb_statistics_block_top_day_num'] = array(
+    '#type' => 'select',
+    '#title' => t("Number of day's top views to display"),
+    '#default_value' => variable_get('mongodb_statistics_block_top_day_num', 0),
+    '#options' => $numbers,
+    '#description' => t('How many content items to display in "day" list.')
+  );
+  $form['mongodb_statistics_block_top_all_num'] = array(
+    '#type' => 'select',
+    '#title' => t('Number of all time views to display'),
+    '#default_value' => variable_get('mongodb_statistics_block_top_all_num', 0),
+    '#options' => $numbers,
+    '#description' => t('How many content items to display in "all time" list.')
+  );
+  $form['mongodb_statistics_block_top_last_num'] = array(
+    '#type' => 'select',
+    '#title' => t('Number of most recent views to display'),
+    '#default_value' => variable_get('mongodb_statistics_block_top_last_num', 0),
+    '#options' => $numbers,
+    '#description' => t('How many content items to display in "recently viewed" list.')
+  );
+  return $form;
+}
+
+/**
+ * Implements hook_block_save().
+ */
+function mongodb_statistics_block_save($delta = '', $edit = array()) {
+  variable_set('mongodb_statistics_block_top_day_num', $edit['mongodb_statistics_block_top_day_num']);
+  variable_set('mongodb_statistics_block_top_all_num', $edit['mongodb_statistics_block_top_all_num']);
+  variable_set('mongodb_statistics_block_top_last_num', $edit['mongodb_statistics_block_top_last_num']);
+}
+
+/**
+ * Build top 'popular content' block, based on real mongodb stats (not the SQL asynchronous tables)
+ * The block content is time-based cached for mongodb_statistics_block_popular_expires minutes
+ *
+ * Implements hook_block_view().
+ */
+function mongodb_statistics_block_view($delta = '') {
+  if (user_access('access content')) {
+    $content = array();
+    
+    $ttlblock = variable_get('mongodb_statistics_block_popular_expires', 0);
+    if($ttlblock) {
+        //try to get it from cache
+        $cid = "mongostat:popular:";
+        $block_expires= REQUEST_TIME + (60 * $ttlblock);
+        $block = cache_get($cid,'cache_mongo_statistics');
+    } else {
+      $block=FALSE;
+    }
+    if( (FALSE!==$block)
+     && (isset($block->data))
+     && (is_array($block->data))
+     && (count($block->data)>0)
+     && ($block_expires >= $block->expire) ) {
+      $block = $block->data;
+    } else {
+      $content = mongodb_statistics_get_direct_node_counter_statistics();
+      
+      if (count($content)) {
+        $block['content'] = $content;
+        $block['subject'] = t('Popular content');
+      } else {
+        $block = null;
+      }
+    
+      cache_set($cid,$block,'cache_mongo_statistics',$block_expires);
+    }
+    return $block;
+  }
+}
+
+/**
+ * Return content of the block or page of top node counters
+ * @return array : build
+ */
+function mongodb_statistics_get_direct_node_counter_statistics() {
+  $content = array();
+  $daytop = variable_get('mongodb_statistics_block_top_day_num', 0);
+  if ($daytop
+    && ($result = mongodb_statistics_title_list('daycount', $daytop))
+    && ($node_title_list = node_title_list($result, t("Today's:")))) {
+    $content['top_day'] = $node_title_list;
+    $content['top_day']['#suffix'] = '<br />';
+  }
+  $alltimetop = variable_get('mongodb_statistics_block_top_all_num', 0);
+  if ($alltimetop
+    && ($result = mongodb_statistics_title_list('totalcount', $alltimetop))
+    && ($node_title_list = node_title_list($result, t('All time:')))) {
+    $content['top_all'] = $node_title_list;
+    $content['top_all']['#suffix'] = '<br />';
+  }
+
+  $lasttop = variable_get('mongodb_statistics_block_top_last_num', 0);
+  if ($lasttop
+    && ($result = mongodb_statistics_title_list('timestamp', $lasttop))
+    && ($node_title_list = node_title_list($result, t('Last viewed:')))) {
+    $content['top_last'] = $node_title_list;
+    $content['top_last']['#suffix'] = '<br />';
+  }
+  return $content;
+}
+
+/**
+ * It is possible to adjust the width of columns generated by the
+ * statistics module.
+ * copy of core statictics helpers
+ */
+function _mongodb_statistics_link($path, $width = 35) {
+  $title = drupal_get_path_alias($path);
+  $title = truncate_utf8($title, $width, FALSE, TRUE);
+  return l($title, $path);
+}
+
+function _mongodb_statistics_format_item($title, $path) {
+  $path = ($path ? $path : '/');
+  $output  = ($title ? "$title<br />" : '');
+  $output .= _mongodb_statistics_link($path);
+  return $output;
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function mongodb_statistics_node_delete($node) {
+  // clean up statistics tables when node is deleted
+  $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+  mongodb_collection($collectionname)->remove(
+        array(
+            'nid' => (int) $node->nid
+        ),
+        array(
+         'justOne' => TRUE
+        )
+      );
+  db_delete('mongodb_node_counter')
+    ->condition('nid', $node->nid)
+    ->execute();
+}
+
+/**
+ * Implements hook_ranking().
+ *
+ * The ranking will be computed only if the asynchronous filling of SQL tables
+ * is activated in the module.
+ */
+function mongodb_statistics_ranking() {
+  if (variable_get('mongodb_statistics_sync_db_tables_count_content_views',0)
+    && variable_get('mongodb_statistics_count_content_views', 0)) {
+    return array(
+      'views' => array(
+        'title' => t('Number of views'),
+        'join' => array(
+          'type' => 'LEFT',
+          'table' => 'mongodb_node_counter',
+          'alias' => 'mongodb_node_counter',
+          'on' => 'mongodb_node_counter.nid = i.sid',
+        ),
+        // Inverse law that maps the highest view count on the site to 1 and 0 to 0.
+        'score' => '2.0 - 2.0 / (1.0 + mongodb_node_counter.totalcount * CAST(:scale AS DECIMAL))',
+        'arguments' => array(':scale' => variable_get('mongodb_node_cron_views_scale', 0)),
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_update_index().
+ */
+function mongodb_statistics_update_index() {
+  // the ranking scale is needed only if SQL synchronisation is activated
+  if (variable_get('mongodb_statistics_sync_db_tables_count_content_views',0)) {
+    variable_set('mongodb_node_cron_views_scale', 1.0 / max(1, db_query('SELECT MAX(totalcount) FROM {mongodb_node_counter}')->fetchField()));
+  }
+}
+
+/**
+ * Views module connector, see mongodb_statistics.views.inc
+ * @return unknown_type
+ */
+function mongodb_statistics_views_api() {
+  return array(
+    'api' => '3.0-alpha1',
+    'path' => drupal_get_path('module', 'mongodb_statistics'),
+  );
+}

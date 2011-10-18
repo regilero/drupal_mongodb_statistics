@@ -1,0 +1,12 @@
+name = MongoDB Statistics
+description = Logs access statistics for your site using MongoDB & provide a replacement for the core statistics module.
+package = MongoDB
+version = "7.x-0.9-dev"
+core = 7.x
+dependencies[] = mongodb
+files[] = mongodb_statistics.test
+files[] = mongodb_statistics.module
+files[] = mongodb_statistics.install
+configure = admin/config/system/mongodb_statistics
+
+

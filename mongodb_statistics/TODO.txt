@@ -1,0 +1,29 @@
+- ensure indexes on MongoDB collections
+
+- provide a data migration also for access_log table from previous core statistics collect.
+
+- top nodes page : provides more content than what anonymous users can see in the block, direct 
+  mongodb interrogation? This could be done, node_counter is lighter than access_log
+
+- ajax statistics:
+  counting pages when they're really seen by user with a jQuery ajax behavior and an img fallback in
+  noscript mode. This way proxy caches usage will not render the statistics unusable:
+   - need to fill final page with elements neeeded to feed statitics
+   - differentiate node generation (hook_exit) and node views (not in hook_exit if ajax enabled)
+   - need a really fast and light server-side script handling ajax answers, this script needs the
+    mongodb connection, will he need the drupal session (if we want to store user in accesslog...)?
+   - will we track everything in accesslog? We need an ajax track call for page loads but also every
+
+- node counters include views and generation counters, make the difference real when ajax stats will be
+ used. Note that actually views mapper does not show the generated counters (need fix).
+
+- hookable module: we should we provide some hooks in the module. But if we add the ajax mode with the
+  fast-and-light bootstrap we'll need to check module hooks will be available there.
+
+- unit tests, like in code statistics
+
+- better OOP: this module is only a copy-and-adapt of core statistics module. A real OOP development
+  would be better, at least for interfaces and adapters (see next point)
+
+- generic advanced statistics module. This mongo db stats should only be a backend of a more general
+ advanced stats module
