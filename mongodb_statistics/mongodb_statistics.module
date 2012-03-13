@@ -536,15 +536,19 @@ function mongodb_statistics_get($nid) {
   if ($nid > 0) {
     // Retrieve an array with both totalcount and daycount.
     $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
-    $collection = mongodb_collection($collectionname);
-    return $collection->findOne(
-      array('_id' => (int) $nid),
-      array(
-         'totalcount',
-         'daycount',
-         'timestamp',
-      )
-    );
+    try {
+      $collection = mongodb_collection($collectionname);
+      return $collection->findOne(
+        array('_id' => (int) $nid),
+        array(
+           'totalcount',
+           'daycount',
+           'timestamp',
+        )
+      );
+    } catch (Exception $e) {
+      drupal_set_message('MongoDb Stats:'.$e->getMessage(),'error');
+    }
   }
   return false;
 }
