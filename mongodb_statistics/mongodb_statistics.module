@@ -12,6 +12,7 @@ define('MONGODB_STATISTICS_DELETED_USER_DO_NOTHING',0);
 define('MONGODB_STATISTICS_DELETED_USER_TRANSFER_ANONYMOUS',1);
 define('MONGODB_STATISTICS_DELETED_USER_DELETE',2);
 
+
 /**
  * Implements hook_help().
  */
@@ -88,10 +89,36 @@ function mongodb_statistics_flush_caches() {
 }
 
 /**
+ * Implements hook_init().
+ *
+ * We add a small js content on the page to track page views even with proxcy cache preventing the hook_exit() to be runned
+ */
+function mongodb_statistics_init() {
+  if (variable_get('mongodb_statistics_count_content_views', 0)) {
+    $params = array('path' => $_GET['q']);
+    // track only node pages
+    if (arg(0) == 'node' && is_numeric(arg(1)) && ( '' == arg(2) || NULL== arg(2) ) ) {
+      $params['nid'] = (int) arg(1);
+      $json = drupal_json_encode($params);
+      $js = 'jQuery.post(Drupal.settings.basePath + "'
+       . drupal_get_path('module', 'mongodb_statistics')
+       . '/tracker.php", ' . $json .');';
+      $options = array(
+        'type' => 'inline',
+        'scope' => 'footer',
+        'preprocess' => false,
+        'defer' => true
+      );
+      drupal_add_js($js, $options);
+    }
+  }
+}
+/**
  * Implements hook_exit().
  *
  * This is where statistics are gathered on page accesses.
  * hook_exit is called at bootstrap time even for cached pages
+ * Here we can track generation of pages
  */
 function mongodb_statistics_exit() {
   global $user;
@@ -108,7 +135,7 @@ function mongodb_statistics_exit() {
 
   if (variable_get('mongodb_statistics_count_content_views', 0)) {
     // We are counting content views.
-    if (arg(0) == 'node' && is_numeric(arg(1)) && arg(2) == NULL) {
+    if (arg(0) == 'node' && is_numeric(arg(1)) && ( '' == arg(2) || NULL== arg(2) )) {
       // A node has been viewed, so update the node's counters.
       $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
       $collection = mongodb_collection($collectionname);
@@ -117,13 +144,13 @@ function mongodb_statistics_exit() {
         array('_id' => $nid),
         array(
           '$inc' => array(
-            'totalcount' => 1,
-            'daycount' => 1,
+           /* 'totalcount' => 1, ==> no more, count this only as a generated counter
+            'daycount' => 1,*/
             'totalgen' => 1,
             'daygen' => 1,
           ),
           '$set' => array(
-            'timestamp' => REQUEST_TIME,
+           /* 'timestamp' => REQUEST_TIME, -> not here */
             'timestampgen' => REQUEST_TIME,
             'nid' => $nid,
           ),
@@ -525,10 +552,13 @@ function mongodb_statistics_title_list($dbfield, $dbrows) {
  *   node ID
  *
  * @return
- *   An array with three entries: [0]=totalcount, [1]=daycount, [2]=timestamp
+ *   An array with 5 entries: [0]=totalcount, [1]=daycount, [2]=totalgen, [3]=daygen, [4]=timestamp
  *   - totalcount: count of the total number of times that node has been viewed.
  *   - daycount: count of the total number of times that node has been viewed "today".
  *     For the daycount to be reset, cron must be enabled.
+ *   - totalgen: count of the total number of times that node has been generated.
+ *   - daygen: count of the total number of times that node has been generated "today".
+ *     For the daygen to be reset, cron must be enabled.
  *   - timestamp: timestamp of when that node was last viewed.
  */
 function mongodb_statistics_get($nid) {
@@ -543,6 +573,8 @@ function mongodb_statistics_get($nid) {
         array(
            'totalcount',
            'daycount',
+           'totalgen',
+           'daygen',
            'timestamp',
         )
       );

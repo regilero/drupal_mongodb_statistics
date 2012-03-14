@@ -8,7 +8,7 @@
 /**
  * Implements hook_token_info().
  *
- * copy of core statistics module
+ * copy of core statistics module with 2 more tokens for generation counters
  */
 function mongodb_statistics_token_info() {
   $node['total-count'] = array(
@@ -18,6 +18,14 @@ function mongodb_statistics_token_info() {
   $node['day-count'] = array(
     'name' => t("Views today"),
     'description' => t("The number of visitors who have read the node today."),
+  );
+  $node['total-generation'] = array(
+    'name' => t("Number of generations"),
+    'description' => t("The number of times this node was generated (may be less than views with proxy cache policies)."),
+  );
+  $node['day-generation'] = array(
+    'name' => t("Views today"),
+    'description' => t("The number of times this node was generated today (may be less than views with proxy cache policies)."),
   );
   $node['last-view'] = array(
     'name' => t("Last view"),
@@ -33,7 +41,7 @@ function mongodb_statistics_token_info() {
 /**
  * Implements hook_tokens().
  *
- * copy of core statistics module
+ * copy of core statistics module with two more tokens for generation counters
  */
 function mongodb_statistics_tokens($type, $tokens, array $data = array(), array $options = array()) {
   $url_options = array('absolute' => TRUE);
@@ -50,6 +58,14 @@ function mongodb_statistics_tokens($type, $tokens, array $data = array(), array 
       elseif ($name == 'day-count') {
         $statistics = mongodb_statistics_get($node->nid);
         $replacements[$original] = $statistics['daycount'];
+      }
+      if ($name == 'total-generation') {
+        $statistics = mongodb_statistics_get($node->nid);
+        $replacements[$original] = $statistics['totalgen'];
+      }
+      elseif ($name == 'day-generation') {
+        $statistics = mongodb_statistics_get($node->nid);
+        $replacements[$original] = $statistics['daygen'];
       }
       elseif ($name == 'last-view') {
         $statistics = mongodb_statistics_get($node->nid);

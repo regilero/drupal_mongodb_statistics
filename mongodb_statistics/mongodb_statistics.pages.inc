@@ -26,8 +26,10 @@ function mongodb_statistics_node_tracker() {
      && variable_get('mongodb_statistics_count_content_views', 0)
      && ($record = mongodb_statistics_get($node->nid))) {
       $items = array(
-        t('Day count: @count', array('@count' => $record['daycount'])),
-        t('Total count: @count', array('@count' => $record['totalcount'])),
+        t('Day views count: @count', array('@count' => $record['daycount'])),
+        t('Total views count: @count', array('@count' => $record['totalcount'])),
+        t('Day generation: @count', array('@count' => $record['daygen'])),
+        t('Total generation: @count', array('@count' => $record['totalgen'])),
         t('Last access: @date', array('@date' => format_date($record['timestamp'], 'short'))),
       );
       $build['mongodb_counters_table'] = array(

@@ -1,0 +1,89 @@
+<?php
+/**
+ * Use this file to allow minimal drupal bootstrap and still get necessary module for tracking.
+ * This file is greatly inspired by the drupal jstat module jstat.php file
+ * 
+ * The main goal of this file is to record statistics in MongoDb and to avoid SQL queries
+ * Hooks ar'ent available here, but hooks are defined on synchhronisation from mongodb to SQL,
+ * So you should check there to add your own modules behaviors.
+ * This tracker must stay fast and short, else why using proxy servers for your pages if
+ * you send back a full drupal bootstrap in ajax for every page seen...
+ * 
+ */
+
+
+// if this module is not installed in sites/all/modules/*/mongodb_statistics then fix that relative path to the root of Drupal (where we can find the index.php file)
+define('MONGODB_STATISTICS_RELATIVE_PATH_TO_ROOT','../../../../..');
+ 
+if (0===count($_POST)) {
+  echo "this should be used with POST query only, sorry.";
+  exit(0);
+}
+
+// Output headers & data and close connection
+ignore_user_abort(TRUE);
+ob_start();
+header("Content-type: text/javascript; charset=utf-8");
+header("Expires: Sun, 19 Nov 1978 05:00:00 GMT");
+header("Cache-Control: no-cache");
+header("Cache-Control: must-revalidate");
+header("Content-Length: 13");
+header("Connection: close");
+print("/* mstats */\n");
+@ob_end_flush();
+@ob_flush();
+@flush();
+
+chdir(MONGODB_STATISTICS_RELATIVE_PATH_TO_ROOT);
+define('DRUPAL_ROOT', getcwd());
+require_once DRUPAL_ROOT .'/includes/bootstrap.inc';
+// We bootstrap a minimal Drupal with at least the variables
+// This could be a major performance decrease as it implies thes 3 prevuious steps
+//DRUPAL_BOOTSTRAP_CONFIGURATION
+//DRUPAL_BOOTSTRAP_PAGE_CACHE
+//DRUPAL_BOOTSTRAP_DATABASE 
+// like in original statistics module, but variables can be cached in
+// cache_bootstrap bin, you should store this bin in APC or MongoDB to avoid
+// database calls.
+// check as well your lock API, using a module bypassing the classical lock API
+// could avoid database calls.
+// We already try to detect if we will need a Session detection on the server siode by checking the content of $_COOKIE
+$sessname = session_name();
+$insecure_session_name = substr($sessname, 1);
+if (isset($_COOKIE[$sessname]) || isset($_COOKIE[$insecure_session_name])) {
+  die ('prout');
+  // this include DRUPAL_BOOTSTRAP_VARIABLES
+  drupal_bootstrap(DRUPAL_BOOTSTRAP_SESSION);
+} else {
+  drupal_bootstrap(DRUPAL_BOOTSTRAP_VARIABLES);
+}
+
+// Can't use module_load_include as it's not loaded yet, so fallback to
+// drupal_get_filename to find our module.
+$path = '/' . dirname(drupal_get_filename('module', 'mongodb'));
+require_once  DRUPAL_ROOT . $path .'/mongodb.module';
+
+// --> response is already sent, now back at work. Let's record everything
+if (variable_get('mongodb_statistics_count_content_views', 0)) {
+  // We are counting content views.
+  
+  // A node has been viewed, so update the node's counters.
+  $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
+  $collection = mongodb_collection($collectionname);
+  $nid = isset($_POST['nid']) ? (int) $_POST['nid'] : 0;
+  $collection->update(
+    array('_id' => $nid),
+    array(
+      '$inc' => array(
+        'totalcount' => 1,
+        'daycount' => 1,
+      ),
+      '$set' => array(
+        'timestamp' => REQUEST_TIME,
+        'nid' => $nid,
+      ),
+    ),
+    array('upsert' => TRUE)
+  );
+}
+exit(0);
