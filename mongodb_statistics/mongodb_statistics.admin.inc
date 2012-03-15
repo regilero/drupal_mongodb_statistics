@@ -569,14 +569,13 @@ function mongodb_statistics_settings_form() {
     '#default_value' => variable_get('mongodb_statistics_count_content_views', 0),
     '#description' => t('Increment a counter each time content is viewed. (Requires a correctly configured <a href="@cron">cron maintenance task</a>, at least once a day.)', array('@cron' => url('admin/reports/status'))),
   );
-  $form['content']['mongodb_accesslog_node_counter_collection_name'] = array(
+  $form['content']['mongodb_node_counter_collection_name'] = array(
     '#type' => 'textfield',
     '#title' => t('Name of the collection in MongoDB'),
-    '#default_value' => variable_get('mongodb_accesslog_node_counter_collection_name','node_counter'),
+    '#default_value' => variable_get('mongodb_node_counter_collection_name','node_counter'),
     '#size' => 20,
     '#description' => t('The collection is sort of table for mongodb, by default data will be stored in a node_counter collection. This settings requires that you have previously enabled the "Count content views" checkbox.'),
   );
-  
   $form['content']['mongodb_statistics_block_popular_expires'] = array(
     '#type' => 'textfield',
     '#title' => t('How many minutes should we cache the result of the "popular content" block?'),

@@ -408,7 +408,7 @@ function mongodb_statistics_cron() {
         array(
           '$set' => array(
             'daycount' => 0,
-            'daycountgen' => 0,
+            'daygen' => 0,
           ),
         ),
         array(
@@ -459,8 +459,8 @@ function mongodb_statistics_synchronize_db_counters($last_statistics_timestamp) 
       'totalcount',
       'daycount',
       'timestampgen',
-      'totalcountgen',
-      'daycountgen',
+      'totalgen',
+      'daygen',
     )
   );
   foreach($cursor as $k => $row) {
@@ -471,8 +471,8 @@ function mongodb_statistics_synchronize_db_counters($last_statistics_timestamp) 
         'daycount' => $row['daycount'],
         'totalcount' => $row['totalcount'],
         'timestamp' => $row['timestamp'],
-        'daycountgen' => $row['daycountgen'],
-        'totalcountgen' => $row['totalcountgen'],
+        'daygen' => $row['daygen'],
+        'totalgen' => $row['totalgen'],
         'timestampgen' => $row['timestampgen'],
       ))
       ->execute();

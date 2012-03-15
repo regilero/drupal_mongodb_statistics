@@ -76,7 +76,9 @@ You can define the variable contents in a settings.php file. Here is the list wi
   // Increment a counter each time content is viewed
   $conf['mongodb_statistics_count_content_views'] = 0;
   //Name of the collection in MongoDB used to store the node counters
-  $conf['mongodb_accesslog_node_counter_collection_name'] = 'node_counter';
+  $conf['mongodb_node_counter_collection_name'] = 'node_counter';
+  // track first time visit for each connected user on each node
+  $conf['mongodb_statistics_track_first_visit'] = 0;
   
   // Should we sync SQL tables asynchronously with the count_content counter value?
   $conf['mongodb_statistics_sync_db_tables_count_content_views'] = 0;
