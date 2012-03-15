@@ -2,11 +2,6 @@
 
 
 /**
- * @file
- * User & Node page callbacks for the statistics module.
- */
-
-/**
  * Tab on node page: infos about node counters and track of this node
  * in access_log mongodb collection.
  *
@@ -18,6 +13,7 @@ function mongodb_statistics_node_tracker() {
   $page = isset($_GET['page']) ? $_GET['page'] : '';
   $pager_page_array = explode(',', $page);
   $on_page = (int) $pager_page_array[0];
+  $stats_available = FALSE;
   
   if ($node = node_load(arg(1))) {
     
@@ -25,49 +21,15 @@ function mongodb_statistics_node_tracker() {
     if ( user_access('view post access counter')
      && variable_get('mongodb_statistics_count_content_views', 0)
      && ($record = mongodb_statistics_get($node->nid))) {
-      $items = array(
-        t('Day count: @count', array('@count' => $record['daycount'])),
-        t('Total count: @count', array('@count' => $record['totalcount'])),
-        t('Last access: @date', array('@date' => format_date($record['timestamp'], 'short'))),
-      );
+      $stats_available = TRUE;
       $build['mongodb_counters_table'] = array(
-        '#type' => 'markup',
-        '#markup' => theme_item_list(array(
-          'items' => $items,
-          'title' => t('Node Counters'),
-          'type' => 'ul',
-          'attributes' => array()
-        ))
-      );
-    } else {
-      $build['mongodb_counters_table_title'] = array(
-        '#type' => 'markup',
-        '#markup' => '<h3>'.t('Node Counters').'</h3>',
-      );
-      $build['mongodb_counters_table'] = array(
-        '#type' => 'markup',
-        '#markup' => '<div><p>'.t('No statistics available.').'</p></div>',
+        '#markup' => theme('mongodb_statistics_node_counters', array( 'record' => $record, ))
       );
     }
     
     // Access log stats
-    $build['mongodb_statistics_table_title'] = array(
-      '#type' => 'markup',
-      '#markup' => '<h3>'.t('Access Log Statistics').'</h3>',
-    );
-    if (!variable_get('mongodb_statistics_enable_access_log', 0)) {
-      $build['mongodb_statistics_table'] = array(
-        '#type' => 'markup',
-        '#markup' => '<div><p>'.t('No statistics available.').'</p></div>',
-      );
-    } else {
-      // TODO provides a lot more useful stats...
-      $header = array(
-        array('data' => t('Time')),
-        array('data' => t('Referrer')),
-        array('data' => t('User')),
-        array('data' => t('Operations')));
-      
+    if (variable_get('mongodb_statistics_enable_access_log', 0)) {
+      $stats_available = TRUE;
       $collectionname = variable_get('mongodb_accesslog_collection_name', 'accesslog');
       $collection = mongodb_collection($collectionname);
       $regex= new MongoRegex('/^node\/' . $node->nid.'(\/.*)?/');
@@ -85,6 +47,7 @@ function mongodb_statistics_node_tracker() {
         ->limit($per_page)
         ->skip($on_page * $per_page);
       $rows = array();
+      $logs = array();
       foreach ($cursor as $log) {
         $rows[] = array(
           array('data' => format_date($log['timestamp'], 'short'), 'class' => array('nowrap')),
@@ -92,13 +55,12 @@ function mongodb_statistics_node_tracker() {
           theme('username', array('account' => (object) $log)),
           l(t('details'), 'admin/reports/stats-mongodb/hits/access/' . $log['_id']),
         );
+        $logs[] = $log;
       }
       $build['mongodb_statistics_table'] = array(
-        '#theme' => 'table',
-        '#header' => $header,
-        '#rows' => $rows,
-        '#empty' => t('No statistics available.'),
+        '#markup' => theme('mongodb_statistics_access_log', array( 'rows' => $rows, 'logs' => $logs))
       );
+      
       // add the pager
       if ($on_page > 0 || count($rows) >= $per_page) {
         $pager_total_items[0] = $countcursor->count();
@@ -110,7 +72,15 @@ function mongodb_statistics_node_tracker() {
         );
       }
     }
-    drupal_set_title($node->title);
+
+    if (! $stats_available ) {
+      $build['mongodb_statistics'] = array(
+        '#type' => 'markup',
+        '#markup' => '<div><p>'.t('No statistics available.').'</p></div>',
+      );
+    }
+
+    drupal_set_title($node->title . ' | ' . t('statistics'));
     
     return $build;
   }

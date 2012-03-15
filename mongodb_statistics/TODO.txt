@@ -5,7 +5,7 @@
 - top nodes page : provides more content than what anonymous users can see in the block, direct 
   mongodb interrogation? This could be done, node_counter is lighter than access_log
 
-- ajax statistics:
+- ajax statistics (Work in progress):
   counting pages when they're really seen by user with a jQuery ajax behavior and an img fallback in
   noscript mode. This way proxy caches usage will not render the statistics unusable:
    - need to fill final page with elements neeeded to feed statitics
@@ -13,6 +13,7 @@
    - need a really fast and light server-side script handling ajax answers, this script needs the
     mongodb connection, will he need the drupal session (if we want to store user in accesslog...)?
    - will we track everything in accesslog? We need an ajax track call for page loads but also every
+   - img noscript fallback is maybe a bad idea, this will certainly make spiders alter the counters
 
 - node counters include views and generation counters, make the difference real when ajax stats will be
  used. Note that actually views mapper does not show the generated counters (need fix).
