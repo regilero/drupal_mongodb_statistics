@@ -101,5 +101,41 @@ You can define the variable contents in a settings.php file. Here is the list wi
   // How many minutes should we cache the result of the "popular content" block?
   $conf['mongodb_statistics_block_popular_expires'] = 0;
 
- 
+Override themable outputs
+===========================
 
+In several places we try to rteplace hard coded render arrays like in original module and to provide theme functions.
+See mongodb_statistics_theme() to get a list of themable items.
+You can use theses themes functions to override the theme rendering like in classical Drupal ways (in your theme's template.php)
+or you can provide your own functions in a module by using theme_registry_alter:
+
+/**
+ * Implements hook_theme_registry_alter(&$theme_registry)
+ */
+function custom_statistics_theme_registry_alter(&$theme_registry) {
+  $theme_registry['mongodb_statistics_node_counters'] = array(
+    'variables' => array( 'record' => NULL ),
+    'function' => 'custom_statistics_theme_mongodb_statistics_node_counters'
+  );
+}
+
+function custom_statistics_theme_mongodb_statistics_node_counters($variables) {
+  $record = $variables['record'];
+  $items = array(
+    t('My Day views count: @count', array('@count' => $record['daycount'])),
+    t('My Total views count: @count', array('@count' => $record['totalcount'])),
+    t('My Day generation: @count', array('@count' => $record['daygen'])),
+    t('My Total generation: @count', array('@count' => $record['totalgen'])),
+    t('My Last access: @date', array('@date' => format_date($record['timestamp'], 'short'))),
+  );
+  $build['mongodb_counters_list'] = array(
+    '#type' => 'markup',
+    '#markup' => theme_item_list(array(
+      'items' => $items,
+      'title' => t('My Node Counters'),
+      'type' => 'ul',
+      'attributes' => array()
+    ))
+  );
+  return drupal_render($build);
+}

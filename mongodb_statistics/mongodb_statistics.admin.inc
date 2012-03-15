@@ -530,7 +530,7 @@ function mongodb_statistics_settings_form() {
     '#type' => 'checkbox',
     '#title' => t('Enable access log'),
     '#default_value' => variable_get('mongodb_statistics_enable_access_log', 0),
-    '#description' => t('Log each page access with extended informations, referrer, user and session, etc. This may generate a big amount of data.'),
+    '#description' => t("Log each page access with extended informations, referrer, user and session, etc. This may generate a big amount of data. Avoid it if you can, support of this stat in this module is incomplete, it won't work with proxy-cache servers and it may never be extended to do so."),
   );
   $form['access']['mongodb_accesslog_collection_name'] = array(
     '#type' => 'textfield',
@@ -608,6 +608,29 @@ function mongodb_statistics_settings_form() {
           .'</p></div>',
     );
   }
-  
+  // User counter settings.
+  $form['user'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('User counters settings'),
+  );
+  $form['user']['mongodb_statistics_enable_user_counter'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable user counters'),
+    '#default_value' => variable_get('mongodb_statistics_enable_user_counter', 0),
+    '#description' => t('Increment some counters each time a logged in user is vieving a countent. (Requires a correctly configured <a href="@cron">cron maintenance task</a>, at least once a day.)', array('@cron' => url('admin/reports/status'))),
+  );
+  $form['user']['mongodb_user_counter_collection_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name of the collection in MongoDB'),
+    '#default_value' => variable_get('mongodb_user_counter_collection_name','user_counter'),
+    '#size' => 20,
+    '#description' => t('The collection is sort of table for mongodb, by default data will be stored in a user_counter collection. This settings requires that you have previously enabled the "Enable user counters" checkbox.'),
+  );
+  $form['user']['mongodb_statistics_track_first_visit'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Track first visit on nodes for connected users'),
+    '#default_value' => variable_get('mongodb_statistics_track_first_visit', 0),
+    '#description' => t('Increment a counter for each user the first time a node content is viewed, that means each node record will store an attribute for each user id having visited the node.'),
+  );
   return system_settings_form($form);
 }

@@ -27,12 +27,12 @@ Theses contents are still available in this module:
 of this block. We also provide it in the admin interface with all other 'top pages'
 - views connectors may be available if you enable in configuration a sql backport
 of all mongodb node counters via cron. This way the SQL database is aware of node
- ounters but only in an asynchronous way (that means synchronous per-request write
+ counters but only in an asynchronous way (that means synchronous per-request write
 operations are done in mongodb and sometimes a summary of the results are pushed in
 MySQL)
 
 The AccessLog part of core statistics is mostly done also. We still lack custom sorts
- on tables and we did not rebuold the "Block IP" action on the reports (if someone 
+ on tables and we did not rebuild the "Block IP" action on the reports (if someone 
  really wants that...).
 We do not provide an SQL backport of the access_log statistics, so you cannot use views.
 We do not provide a migration batch for old access log statistics gathered, it's in the
@@ -52,3 +52,94 @@ Install
 Configuration
 =============
 See the configuration page of this module (linked in the module list or in system->Statistics)
+You can define the variable contents in a settings.php file. Here is the list with default values (mostly inactivated):
+
+  // ---------------------------------------
+  //           MONGODB STATISTICS 
+  // ---------------------------------------
+  //
+  // --- ACCESS LOGS ----
+  // Enabling access_log collect
+  $conf['mongodb_statistics_enable_access_log'] = 0;
+  // name of the collection for access logs
+  $conf['mongodb_accesslog_collection_name'] = 'accesslog';
+  // what should we do when a user is deleted for his statistics?
+  // MONGODB_STATISTICS_DELETED_USER_DO_NOTHING => 0
+  // MONGODB_STATISTICS_DELETED_USER_TRANSFER_ANONYMOUS => 1
+  // MONGODB_STATISTICS_DELETED_USER_DELETE => 2
+  $conf['mongodb_statistics_deleted_user_behavior'] = 0;
+  // How many minutes should we cache the result of the "popular content" block?
+  // 0 means no cache
+  $conf['mongodb_statistics_flush_accesslog_timer'] = 259200;
+  
+  // --- NODE COUNTERS ----
+  // Increment a counter each time content is viewed
+  $conf['mongodb_statistics_count_content_views'] = 0;
+  //Name of the collection in MongoDB used to store the node counters
+  $conf['mongodb_node_counter_collection_name'] = 'node_counter';
+  // Increment a user counter each time content is viewed
+  $conf['mongodb_statistics_enable_user_counter'] = 0;
+  //Name of the collection in MongoDB used to store the per user counters
+  $conf['mongodb_user_counter_collection_name'] = 'user_counter';
+  // track first time visit for each connected user on each node
+  $conf['mongodb_statistics_track_first_visit'] = 0;
+  
+  // Should we sync SQL tables asynchronously with the count_content counter value?
+  $conf['mongodb_statistics_sync_db_tables_count_content_views'] = 0;
+  // This one is not a configuration setting, it's a memory record of the last time we made the synchronisation 
+  // An empty string means all MongoDB contents will be pushed back into mongodb_node_counter SQL table if you activate the 
+  // "Synchronize db tables asynchronously" function.
+  // so it's better to alter it on the backoffice if you want it than in a settings.php file
+  //$conf['mongodb_statistics_day_timestamp'] = 0;
+  // same thing is previous variable, this is an internal momerization of the last day we performed the cron
+  // so we can hanlde per-day counters
+  //$conf['mongodb_statistics_day_dow'] = 'monday';
+ 
+  // Stats BLOCK configuration
+  //Number of day's top views to display
+  $conf['mongodb_statistics_block_top_day_num'] = 0;
+  // Number of all time views to display
+  $conf['mongodb_statistics_block_top_all_num'] = 0;
+  // Number of most recent views to display
+  $conf['mongodb_statistics_block_top_last_num'] = 0;
+  // How many minutes should we cache the result of the "popular content" block?
+  $conf['mongodb_statistics_block_popular_expires'] = 0;
+
+Override themable outputs
+===========================
+
+In several places we try to rteplace hard coded render arrays like in original module and to provide theme functions.
+See mongodb_statistics_theme() to get a list of themable items.
+You can use theses themes functions to override the theme rendering like in classical Drupal ways (in your theme's template.php)
+or you can provide your own functions in a module by using theme_registry_alter:
+
+/**
+ * Implements hook_theme_registry_alter(&$theme_registry)
+ */
+function custom_statistics_theme_registry_alter(&$theme_registry) {
+  $theme_registry['mongodb_statistics_node_counters'] = array(
+    'variables' => array( 'record' => NULL ),
+    'function' => 'custom_statistics_theme_mongodb_statistics_node_counters'
+  );
+}
+
+function custom_statistics_theme_mongodb_statistics_node_counters($variables) {
+  $record = $variables['record'];
+  $items = array(
+    t('My Day views count: @count', array('@count' => $record['daycount'])),
+    t('My Total views count: @count', array('@count' => $record['totalcount'])),
+    t('My Day generation: @count', array('@count' => $record['daygen'])),
+    t('My Total generation: @count', array('@count' => $record['totalgen'])),
+    t('My Last access: @date', array('@date' => format_date($record['timestamp'], 'short'))),
+  );
+  $build['mongodb_counters_list'] = array(
+    '#type' => 'markup',
+    '#markup' => theme_item_list(array(
+      'items' => $items,
+      'title' => t('My Node Counters'),
+      'type' => 'ul',
+      'attributes' => array()
+    ))
+  );
+  return drupal_render($build);
+}

@@ -30,9 +30,9 @@ header("Cache-Control: must-revalidate");
 header("Content-Length: 13");
 header("Connection: close");
 print("/* mstats */\n");
-@ob_end_flush();
-@ob_flush();
-@flush();
+ob_end_flush();
+ob_flush();
+flush();
 
 chdir(MONGODB_STATISTICS_RELATIVE_PATH_TO_ROOT);
 define('DRUPAL_ROOT', getcwd());
@@ -48,14 +48,12 @@ require_once DRUPAL_ROOT .'/includes/bootstrap.inc';
 // check as well your lock API, using a module bypassing the classical lock API
 // could avoid database calls.
 // We already try to detect if we will need a Session detection on the server siode by checking the content of $_COOKIE
+drupal_bootstrap(DRUPAL_BOOTSTRAP_VARIABLES);
 $sessname = session_name();
 $insecure_session_name = substr($sessname, 1);
 if (isset($_COOKIE[$sessname]) || isset($_COOKIE[$insecure_session_name])) {
-  die ('prout');
   // this include DRUPAL_BOOTSTRAP_VARIABLES
   drupal_bootstrap(DRUPAL_BOOTSTRAP_SESSION);
-} else {
-  drupal_bootstrap(DRUPAL_BOOTSTRAP_VARIABLES);
 }
 
 // Can't use module_load_include as it's not loaded yet, so fallback to
@@ -85,5 +83,43 @@ if (variable_get('mongodb_statistics_count_content_views', 0)) {
     ),
     array('upsert' => TRUE)
   );
+}
+
+if (variable_get('mongodb_statistics_enable_user_counter', 0)) {
+  global $user;
+  if (variable_get('mongodb_statistics_track_first_visit', 0)) {
+    // A node has been viewed, maybe we'll have to record it's the first time for that user.
+    // here we will act only if DRUPAL_BOOTSTRAP_SESSION was run and if the user is not anonymous
+    if (isset($user) && $user->uid != 0) {
+      $collectionname = variable_get('mongodb_user_counter_collection_name', 'user_counter');
+      $collection = mongodb_collection($collectionname);
+      $uid = (int) $user->uid;
+      $nid = isset($_POST['nid']) ? (int) $_POST['nid'] : 0;
+      if ($nid) {
+        $find = array(
+          '_id' => $uid,
+          'visited' => $nid,
+        );
+        $user_record = $collection->findOne($find, array('_id'));
+        if (!$user_record) {
+          // the user never visited that node before
+          // record it and update timestamp for sync operations
+          $collection->update(
+            array('_id' => $uid),
+            array(
+              '$addToSet' => array(
+                'visited' => $nid, // this one is the 'all-time visited array of nid
+                'newvisited' => $nid, // this one contains the new visited ones, will have to be emptied on sync operations
+              ),
+              '$set' => array(
+                'timestamp' => REQUEST_TIME
+              ),
+            ),
+            array('upsert' => TRUE)
+          );
+        }
+      }
+    }
+  }
 }
 exit(0);
