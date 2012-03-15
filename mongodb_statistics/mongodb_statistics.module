@@ -392,7 +392,7 @@ function mongodb_statistics_user_delete($account) {
 function mongodb_statistics_cron() {
   //GET last value set in this variable (last cron)
   $request_dow = date('D',REQUEST_TIME);
-  $last_statistics_dow = variable_get('mongodb_statistics_day_dow', $request_dow);
+  $last_statistics_dow = variable_get('mongodb_statistics_day_dow', 'never');
   $last_statistics_timestamp = variable_get('mongodb_statistics_day_timestamp', '');
 
   if (variable_get('mongodb_statistics_count_content_views', 0)) {
@@ -400,7 +400,7 @@ function mongodb_statistics_cron() {
     // Better than testing 24 hours like in core statistics,
     // here rotation depends on midnight (dow means day of week)
     if ( $request_dow !== $last_statistics_dow) {
-      // Reset day counts.
+      // Reset day counts. on node counters
       $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
       $collection = mongodb_collection($collectionname);
       $collection->update(
@@ -415,6 +415,7 @@ function mongodb_statistics_cron() {
           'multiple' => true,
         )
       );
+      // record the day when we last run
       variable_set('mongodb_statistics_day_dow', $request_dow);
     }
 
