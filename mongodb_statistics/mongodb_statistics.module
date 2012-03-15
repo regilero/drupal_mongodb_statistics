@@ -395,6 +395,7 @@ function mongodb_statistics_cron() {
   $last_statistics_dow = variable_get('mongodb_statistics_day_dow', 'never');
   $last_statistics_timestamp = variable_get('mongodb_statistics_day_timestamp', '');
 
+  // NODE COUNTERS -------------
   if (variable_get('mongodb_statistics_count_content_views', 0)) {
     // was it yesterday?
     // Better than testing 24 hours like in core statistics,
@@ -425,7 +426,50 @@ function mongodb_statistics_cron() {
     }
     variable_set('mongodb_statistics_day_timestamp', REQUEST_TIME);
   }
-  
+
+  // --- USER COUNTERS
+  if (variable_get('mongodb_statistics_enable_user_counter', 0)) {
+    $last_user_sync_timestamp = variable_get('mongodb_statistics_user_sync_timestamp', 0);
+    $interval = REQUEST_TIME - $last_user_sync_timestamp;
+    if ( $interval > variable_get('mongodb_statistics_user_sync_interval', 3600) ) {
+      // we didn't sync the user since enough time, so let's sync
+      $collectionname = variable_get('mongodb_user_counter_collection_name', 'user_counter');
+      $collection = mongodb_collection($collectionname);
+      // Get recently updated users
+      $result = $collection->find(
+        array('timestamp' => array('$gt' => $last_user_sync_timestamp)),
+        array('_id','newvisited')
+      );
+      $newvisits = array();
+      foreach ($result as $found) {
+        if (count($found['newvisited'])>0) {
+          $newvisits[$found['_id']] = $found['newvisited'];
+        }
+      }
+      if (count($newvisits)>0) {
+        // allow other module to hook there, see mongodb_statistics.api.php
+        foreach (module_implements('mongodb_statistics_firstvisits') as $module) {
+          $function = $module . '_mongodb_statistics_firstvisits';
+          $function($newvisits);
+        }
+        // Reset newvisited array on user counters
+        $collection->update(
+          array(),
+          array(
+            '$set' => array(
+              'newvisited' => array(),
+            ),
+          ),
+          array(
+            'multiple' => true,
+          )
+        );
+      }
+      // record the timestamp when we last run
+      variable_set('mongodb_statistics_user_sync_timestamp', REQUEST_TIME);
+    }
+  }
+
   // Clean up expired access logs (if applicable).
   $ttl = variable_get('mongodb_statistics_flush_accesslog_timer', 259200);
   if ( ( $ttl > 0) && variable_get('mongodb_statistics_enable_access_log', 0) ) {
@@ -469,12 +513,12 @@ function mongodb_statistics_synchronize_db_counters($last_statistics_timestamp) 
     db_merge('mongodb_node_counter')
       ->key(array('nid' => $row['nid']))
       ->fields(array(
-        'daycount' => $row['daycount'],
-        'totalcount' => $row['totalcount'],
-        'timestamp' => $row['timestamp'],
-        'daygen' => $row['daygen'],
-        'totalgen' => $row['totalgen'],
-        'timestampgen' => $row['timestampgen'],
+        'daycount' => isset($row['daycount'])? $row['daycount'] : 0,
+        'totalcount' => isset($row['totalcount'])? $row['totalcount'] : 0,
+        'timestamp' => isset($row['timestamp'])? $row['timestamp'] : 0,
+        'daygen' => isset($row['daygen'])? $row['daygen'] : 0,
+        'totalgen' => isset($row['totalgen'])? $row['totalgen'] : 0,
+        'timestampgen' => isset($row['timestampgen'])? $row['timestampgen'] : 0,
       ))
       ->execute();
   }

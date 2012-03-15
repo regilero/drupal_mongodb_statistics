@@ -632,5 +632,19 @@ function mongodb_statistics_settings_form() {
     '#default_value' => variable_get('mongodb_statistics_track_first_visit', 0),
     '#description' => t('Increment a counter for each user the first time a node content is viewed, that means each node record will store an attribute for each user id having visited the node.'),
   );
+  $form['user']['mongodb_statistics_user_sync_interval'] = array(
+    '#type' => 'select',
+    '#title' => t('Interval of user counters synchronisation'),
+    '#default_value' => variable_get('mongodb_statistics_user_sync_interval', 3600),
+    '#options' => array(0 => t('Never')) + drupal_map_assoc(array(120,300,600,900,1800,3600, 10800, 21600, 32400, 43200, 86400, 172800, 604800), 'format_interval'),
+    '#description' => t('User counters (like first time visits of nodes are pushed into mongodb. After that interval, and if the cron is running, theses counters will get pushed into MySQL, or at least some hook function will get called where you can connect some code '),
+  );
+  $form['user']['mongodb_statistics_user_sync_timestamp'] = array(
+  '#type' => 'textfield',
+    '#title' => t('Advanced: last synchonized timestamp for SQL synchronization of user counters'),
+    '#default_value' => variable_get('mongodb_statistics_user_sync_timestamp',''),
+    '#size' => 10,
+    '#description' => t('This is normally an internal settings, tracking the last timestamp of synchronization.'),
+  );
   return system_settings_form($form);
 }

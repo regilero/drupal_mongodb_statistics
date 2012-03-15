@@ -27,6 +27,8 @@ function mongodb_statistics_uninstall() {
   variable_del('mongodb_node_counter_collection_name');
   variable_del('mongodb_statistics_enable_user_counter');
   variable_del('mongodb_user_counter_collection_name');
+  variable_del('mongodb_statistics_user_sync_timestamp');
+  variable_del('mongodb_statistics_user_sync_interval');
   variable_del('mongodb_statistics_track_first_visit');
 }
 

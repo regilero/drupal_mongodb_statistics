@@ -83,17 +83,11 @@ You can define the variable contents in a settings.php file. Here is the list wi
   $conf['mongodb_user_counter_collection_name'] = 'user_counter';
   // track first time visit for each connected user on each node
   $conf['mongodb_statistics_track_first_visit'] = 0;
+  // interval at which user mongodb counters will be treated for hooks modules to do some stuff
+  $conf['mongodb_statistics_user_sync_interval'] = 3600;
   
   // Should we sync SQL tables asynchronously with the count_content counter value?
   $conf['mongodb_statistics_sync_db_tables_count_content_views'] = 0;
-  // This one is not a configuration setting, it's a memory record of the last time we made the synchronisation 
-  // An empty string means all MongoDB contents will be pushed back into mongodb_node_counter SQL table if you activate the 
-  // "Synchronize db tables asynchronously" function.
-  // so it's better to alter it on the backoffice if you want it than in a settings.php file
-  //$conf['mongodb_statistics_day_timestamp'] = 0;
-  // same thing is previous variable, this is an internal momerization of the last day we performed the cron
-  // so we can hanlde per-day counters
-  //$conf['mongodb_statistics_day_dow'] = 'monday';
  
   // Stats BLOCK configuration
   //Number of day's top views to display
