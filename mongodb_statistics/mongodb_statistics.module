@@ -12,6 +12,7 @@ define('MONGODB_STATISTICS_DELETED_USER_DO_NOTHING',0);
 define('MONGODB_STATISTICS_DELETED_USER_TRANSFER_ANONYMOUS',1);
 define('MONGODB_STATISTICS_DELETED_USER_DELETE',2);
 
+
 /**
  * Implements hook_help().
  */
@@ -88,10 +89,36 @@ function mongodb_statistics_flush_caches() {
 }
 
 /**
+ * Implements hook_init().
+ *
+ * We add a small js content on the page to track page views even with proxcy cache preventing the hook_exit() to be runned
+ */
+function mongodb_statistics_init() {
+  if (variable_get('mongodb_statistics_count_content_views', 0)) {
+    $params = array('path' => $_GET['q']);
+    // track only node pages
+    if (arg(0) == 'node' && is_numeric(arg(1)) && ( '' == arg(2) || NULL== arg(2) ) ) {
+      $params['nid'] = (int) arg(1);
+      $json = drupal_json_encode($params);
+      $js = 'jQuery.post(Drupal.settings.basePath + "'
+       . drupal_get_path('module', 'mongodb_statistics')
+       . '/tracker.php", ' . $json .');';
+      $options = array(
+        'type' => 'inline',
+        'scope' => 'footer',
+        'preprocess' => false,
+        'defer' => true
+      );
+      drupal_add_js($js, $options);
+    }
+  }
+}
+/**
  * Implements hook_exit().
  *
  * This is where statistics are gathered on page accesses.
  * hook_exit is called at bootstrap time even for cached pages
+ * Here we can track generation of pages
  */
 function mongodb_statistics_exit() {
   global $user;
@@ -108,7 +135,7 @@ function mongodb_statistics_exit() {
 
   if (variable_get('mongodb_statistics_count_content_views', 0)) {
     // We are counting content views.
-    if (arg(0) == 'node' && is_numeric(arg(1)) && arg(2) == NULL) {
+    if (arg(0) == 'node' && is_numeric(arg(1)) && ( '' == arg(2) || NULL== arg(2) )) {
       // A node has been viewed, so update the node's counters.
       $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
       $collection = mongodb_collection($collectionname);
@@ -117,13 +144,13 @@ function mongodb_statistics_exit() {
         array('_id' => $nid),
         array(
           '$inc' => array(
-            'totalcount' => 1,
-            'daycount' => 1,
+           /* 'totalcount' => 1, ==> no more, count this only as a generated counter
+            'daycount' => 1,*/
             'totalgen' => 1,
             'daygen' => 1,
           ),
           '$set' => array(
-            'timestamp' => REQUEST_TIME,
+           /* 'timestamp' => REQUEST_TIME, -> not here */
             'timestampgen' => REQUEST_TIME,
             'nid' => $nid,
           ),
@@ -365,15 +392,16 @@ function mongodb_statistics_user_delete($account) {
 function mongodb_statistics_cron() {
   //GET last value set in this variable (last cron)
   $request_dow = date('D',REQUEST_TIME);
-  $last_statistics_dow = variable_get('mongodb_statistics_day_dow', $request_dow);
+  $last_statistics_dow = variable_get('mongodb_statistics_day_dow', 'never');
   $last_statistics_timestamp = variable_get('mongodb_statistics_day_timestamp', '');
 
+  // NODE COUNTERS -------------
   if (variable_get('mongodb_statistics_count_content_views', 0)) {
     // was it yesterday?
     // Better than testing 24 hours like in core statistics,
     // here rotation depends on midnight (dow means day of week)
     if ( $request_dow !== $last_statistics_dow) {
-      // Reset day counts.
+      // Reset day counts. on node counters
       $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
       $collection = mongodb_collection($collectionname);
       $collection->update(
@@ -381,13 +409,14 @@ function mongodb_statistics_cron() {
         array(
           '$set' => array(
             'daycount' => 0,
-            'daycountgen' => 0,
+            'daygen' => 0,
           ),
         ),
         array(
           'multiple' => true,
         )
       );
+      // record the day when we last run
       variable_set('mongodb_statistics_day_dow', $request_dow);
     }
 
@@ -397,7 +426,50 @@ function mongodb_statistics_cron() {
     }
     variable_set('mongodb_statistics_day_timestamp', REQUEST_TIME);
   }
-  
+
+  // --- USER COUNTERS
+  if (variable_get('mongodb_statistics_enable_user_counter', 0)) {
+    $last_user_sync_timestamp = variable_get('mongodb_statistics_user_sync_timestamp', 0);
+    $interval = REQUEST_TIME - $last_user_sync_timestamp;
+    if ( $interval > variable_get('mongodb_statistics_user_sync_interval', 3600) ) {
+      // we didn't sync the user since enough time, so let's sync
+      $collectionname = variable_get('mongodb_user_counter_collection_name', 'user_counter');
+      $collection = mongodb_collection($collectionname);
+      // Get recently updated users
+      $result = $collection->find(
+        array('timestamp' => array('$gt' => $last_user_sync_timestamp)),
+        array('_id','newvisited')
+      );
+      $newvisits = array();
+      foreach ($result as $found) {
+        if (count($found['newvisited'])>0) {
+          $newvisits[$found['_id']] = $found['newvisited'];
+        }
+      }
+      if (count($newvisits)>0) {
+        // allow other module to hook there, see mongodb_statistics.api.php
+        foreach (module_implements('mongodb_statistics_firstvisits') as $module) {
+          $function = $module . '_mongodb_statistics_firstvisits';
+          $function($newvisits);
+        }
+        // Reset newvisited array on user counters
+        $collection->update(
+          array(),
+          array(
+            '$set' => array(
+              'newvisited' => array(),
+            ),
+          ),
+          array(
+            'multiple' => true,
+          )
+        );
+      }
+      // record the timestamp when we last run
+      variable_set('mongodb_statistics_user_sync_timestamp', REQUEST_TIME);
+    }
+  }
+
   // Clean up expired access logs (if applicable).
   $ttl = variable_get('mongodb_statistics_flush_accesslog_timer', 259200);
   if ( ( $ttl > 0) && variable_get('mongodb_statistics_enable_access_log', 0) ) {
@@ -432,8 +504,8 @@ function mongodb_statistics_synchronize_db_counters($last_statistics_timestamp) 
       'totalcount',
       'daycount',
       'timestampgen',
-      'totalcountgen',
-      'daycountgen',
+      'totalgen',
+      'daygen',
     )
   );
   foreach($cursor as $k => $row) {
@@ -441,12 +513,12 @@ function mongodb_statistics_synchronize_db_counters($last_statistics_timestamp) 
     db_merge('mongodb_node_counter')
       ->key(array('nid' => $row['nid']))
       ->fields(array(
-        'daycount' => $row['daycount'],
-        'totalcount' => $row['totalcount'],
-        'timestamp' => $row['timestamp'],
-        'daycountgen' => $row['daycountgen'],
-        'totalcountgen' => $row['totalcountgen'],
-        'timestampgen' => $row['timestampgen'],
+        'daycount' => isset($row['daycount'])? $row['daycount'] : 0,
+        'totalcount' => isset($row['totalcount'])? $row['totalcount'] : 0,
+        'timestamp' => isset($row['timestamp'])? $row['timestamp'] : 0,
+        'daygen' => isset($row['daygen'])? $row['daygen'] : 0,
+        'totalgen' => isset($row['totalgen'])? $row['totalgen'] : 0,
+        'timestampgen' => isset($row['timestampgen'])? $row['timestampgen'] : 0,
       ))
       ->execute();
   }
@@ -525,10 +597,13 @@ function mongodb_statistics_title_list($dbfield, $dbrows) {
  *   node ID
  *
  * @return
- *   An array with three entries: [0]=totalcount, [1]=daycount, [2]=timestamp
+ *   An array with 5 entries: [0]=totalcount, [1]=daycount, [2]=totalgen, [3]=daygen, [4]=timestamp
  *   - totalcount: count of the total number of times that node has been viewed.
  *   - daycount: count of the total number of times that node has been viewed "today".
  *     For the daycount to be reset, cron must be enabled.
+ *   - totalgen: count of the total number of times that node has been generated.
+ *   - daygen: count of the total number of times that node has been generated "today".
+ *     For the daygen to be reset, cron must be enabled.
  *   - timestamp: timestamp of when that node was last viewed.
  */
 function mongodb_statistics_get($nid) {
@@ -536,15 +611,21 @@ function mongodb_statistics_get($nid) {
   if ($nid > 0) {
     // Retrieve an array with both totalcount and daycount.
     $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
-    $collection = mongodb_collection($collectionname);
-    return $collection->findOne(
-      array('_id' => (int) $nid),
-      array(
-         'totalcount',
-         'daycount',
-         'timestamp',
-      )
-    );
+    try {
+      $collection = mongodb_collection($collectionname);
+      return $collection->findOne(
+        array('_id' => (int) $nid),
+        array(
+           'totalcount',
+           'daycount',
+           'totalgen',
+           'daygen',
+           'timestamp',
+        )
+      );
+    } catch (Exception $e) {
+      drupal_set_message('MongoDb Stats:'.$e->getMessage(),'error');
+    }
   }
   return false;
 }

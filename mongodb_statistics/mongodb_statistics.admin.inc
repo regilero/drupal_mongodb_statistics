@@ -530,7 +530,7 @@ function mongodb_statistics_settings_form() {
     '#type' => 'checkbox',
     '#title' => t('Enable access log'),
     '#default_value' => variable_get('mongodb_statistics_enable_access_log', 0),
-    '#description' => t('Log each page access with extended informations, referrer, user and session, etc. This may generate a big amount of data.'),
+    '#description' => t("Log each page access with extended informations, referrer, user and session, etc. This may generate a big amount of data. Avoid it if you can, support of this stat in this module is incomplete, it won't work with proxy-cache servers and it may never be extended to do so."),
   );
   $form['access']['mongodb_accesslog_collection_name'] = array(
     '#type' => 'textfield',
@@ -569,14 +569,13 @@ function mongodb_statistics_settings_form() {
     '#default_value' => variable_get('mongodb_statistics_count_content_views', 0),
     '#description' => t('Increment a counter each time content is viewed. (Requires a correctly configured <a href="@cron">cron maintenance task</a>, at least once a day.)', array('@cron' => url('admin/reports/status'))),
   );
-  $form['content']['mongodb_accesslog_node_counter_collection_name'] = array(
+  $form['content']['mongodb_node_counter_collection_name'] = array(
     '#type' => 'textfield',
     '#title' => t('Name of the collection in MongoDB'),
-    '#default_value' => variable_get('mongodb_accesslog_node_counter_collection_name','node_counter'),
+    '#default_value' => variable_get('mongodb_node_counter_collection_name','node_counter'),
     '#size' => 20,
     '#description' => t('The collection is sort of table for mongodb, by default data will be stored in a node_counter collection. This settings requires that you have previously enabled the "Count content views" checkbox.'),
   );
-  
   $form['content']['mongodb_statistics_block_popular_expires'] = array(
     '#type' => 'textfield',
     '#title' => t('How many minutes should we cache the result of the "popular content" block?'),
@@ -609,6 +608,43 @@ function mongodb_statistics_settings_form() {
           .'</p></div>',
     );
   }
-  
+  // User counter settings.
+  $form['user'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('User counters settings'),
+  );
+  $form['user']['mongodb_statistics_enable_user_counter'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable user counters'),
+    '#default_value' => variable_get('mongodb_statistics_enable_user_counter', 0),
+    '#description' => t('Increment some counters each time a logged in user is vieving a countent. (Requires a correctly configured <a href="@cron">cron maintenance task</a>, at least once a day.)', array('@cron' => url('admin/reports/status'))),
+  );
+  $form['user']['mongodb_user_counter_collection_name'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name of the collection in MongoDB'),
+    '#default_value' => variable_get('mongodb_user_counter_collection_name','user_counter'),
+    '#size' => 20,
+    '#description' => t('The collection is sort of table for mongodb, by default data will be stored in a user_counter collection. This settings requires that you have previously enabled the "Enable user counters" checkbox.'),
+  );
+  $form['user']['mongodb_statistics_track_first_visit'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Track first visit on nodes for connected users'),
+    '#default_value' => variable_get('mongodb_statistics_track_first_visit', 0),
+    '#description' => t('Increment a counter for each user the first time a node content is viewed, that means each node record will store an attribute for each user id having visited the node.'),
+  );
+  $form['user']['mongodb_statistics_user_sync_interval'] = array(
+    '#type' => 'select',
+    '#title' => t('Interval of user counters synchronisation'),
+    '#default_value' => variable_get('mongodb_statistics_user_sync_interval', 3600),
+    '#options' => array(0 => t('Never')) + drupal_map_assoc(array(120,300,600,900,1800,3600, 10800, 21600, 32400, 43200, 86400, 172800, 604800), 'format_interval'),
+    '#description' => t('User counters (like first time visits of nodes are pushed into mongodb. After that interval, and if the cron is running, theses counters will get pushed into MySQL, or at least some hook function will get called where you can connect some code '),
+  );
+  $form['user']['mongodb_statistics_user_sync_timestamp'] = array(
+  '#type' => 'textfield',
+    '#title' => t('Advanced: last synchonized timestamp for SQL synchronization of user counters'),
+    '#default_value' => variable_get('mongodb_statistics_user_sync_timestamp',''),
+    '#size' => 10,
+    '#description' => t('This is normally an internal settings, tracking the last timestamp of synchronization.'),
+  );
   return system_settings_form($form);
 }
