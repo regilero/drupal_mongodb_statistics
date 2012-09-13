@@ -52,6 +52,13 @@ drupal_bootstrap(DRUPAL_BOOTSTRAP_VARIABLES);
 $sessname = session_name();
 $insecure_session_name = substr($sessname, 1);
 if (isset($_COOKIE[$sessname]) || isset($_COOKIE[$insecure_session_name])) {
+  // Avoid later warnings about session-start :
+  // session_start(): Cannot send session cache limiter - headers already sent
+  // by emptying the session cache headers to send
+  // The problem is that DRUPAL_BOOTSRAP_CONFIGURATION does a:
+  // ini_set('session.cache_limiter', 'none');
+  // So we must do that after that this step is done
+  session_cache_limiter(FALSE);
   // this include DRUPAL_BOOTSTRAP_VARIABLES
   drupal_bootstrap(DRUPAL_BOOTSTRAP_SESSION);
 }
