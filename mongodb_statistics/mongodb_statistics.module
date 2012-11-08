@@ -711,7 +711,7 @@ function mongodb_statistics_block_view($delta = '') {
      && (isset($block->data))
      && (is_array($block->data))
      && (count($block->data)>0)
-     && ($block_expires >= $block->expire) ) {
+     && (REQUEST_TIME <= $block->expire) ) {
       $block = $block->data;
     } else {
       $content = mongodb_statistics_get_direct_node_counter_statistics();
