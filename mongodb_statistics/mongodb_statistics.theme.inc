@@ -15,9 +15,15 @@ function mongodb_statistics_theme() {
   return array(
     'mongodb_statistics_node_counters' => array(
       'variables' => array('record' => NULL),
+      'file' => 'mongodb_statistics.theme.inc',
+      'path' => drupal_get_path('module', 'mongodb_statistics'),
+      'theme path' => '',
     ),
     'mongodb_statistics_node_access_log' => array(
       'variables' => array('rows' => NULL, 'logs' => NULL),
+      'file' => 'mongodb_statistics.theme.inc',
+      'path' => drupal_get_path('module', 'mongodb_statistics'),
+      'theme path' => '',
     ),
   );
 }
