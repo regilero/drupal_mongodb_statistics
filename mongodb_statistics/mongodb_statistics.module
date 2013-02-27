@@ -613,7 +613,7 @@ function mongodb_statistics_get($nid) {
     $collectionname = variable_get('mongodb_node_counter_collection_name', 'node_counter');
     try {
       $collection = mongodb_collection($collectionname);
-      return $collection->findOne(
+      $res = $collection->findOne(
         array('_id' => (int) $nid),
         array(
            'totalcount',
@@ -623,6 +623,14 @@ function mongodb_statistics_get($nid) {
            'timestamp',
         )
       );
+      if ($res) {
+        if (!array_key_exists('totalcount',$res)) $res['totalcount']=0;
+        if (!array_key_exists('daycount',$res)) $res['daycount']=0;
+        if (!array_key_exists('totalgen',$res)) $res['totalgen']=0;
+        if (!array_key_exists('daygen',$res)) $res['daygen']=0;
+        if (!array_key_exists('timestamp',$res)) $res['timestamp']=REQUEST_TIME;
+      }
+      return $res;
     } catch (Exception $e) {
       drupal_set_message('MongoDb Stats:'.$e->getMessage(),'error');
     }
